@@ -12,4 +12,3 @@ Users can also create their own adapters.
     rtds_adapter
     pnp_adapter
     new_adapter
-

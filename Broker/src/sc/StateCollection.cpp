@@ -148,10 +148,6 @@ void SCAgent::HandleIncomingMessage(boost::shared_ptr<const ModuleMessage> msg, 
             HandleAccept(peer);
         }
     }
-    else if (msg->has_volt_var_message())
-    {
-        vvc::VoltVarMessage vvm = msg->volt_var_message();
-    }
     else if (msg->has_state_collection_message())
     {
         StateCollectionMessage scm = msg->state_collection_message();
@@ -296,7 +292,7 @@ void SCAgent::StateResponse()
                             csm->clear_gateway();
                         }
                     }
-                    else if (dssm.type() == "Drer")
+                    else if (dssm.type() == "DRER")
                     {
                         if(dssm.count()>0)
                         {

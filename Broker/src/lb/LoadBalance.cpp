@@ -37,7 +37,6 @@
 ///                 LBAgent::HandleTooLate
 ///                 LBAgent::HandlePeerList
 ///                 LBAgent::SetPStar
-///                 LBAgent::SetDesd
 ///                 LBAgent::PrepareForSending
 ///                 LBAgent::Synchronize
 ///                 LBAgent::CheckInvariant
@@ -59,15 +58,23 @@
 #include "LoadBalance.hpp"
 
 #include "CLogger.hpp"
+#include "Messages.hpp"
 #include "CTimings.hpp"
 #include "CDeviceManager.hpp"
 #include "CGlobalPeerList.hpp"
 #include "gm/GroupManagement.hpp"
 #include "CGlobalConfiguration.hpp"
 
-#include <boost/range/adaptor/map.hpp>
+#include <sstream>
+#include <string>
 
-#include <armadillo>
+
+#include <boost/foreach.hpp>
+#include <boost/bind.hpp>
+#include <boost/asio/error.hpp>
+#include <boost/system/error_code.hpp>
+#include <boost/range/adaptor/map.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 namespace freedm {
 namespace broker {
@@ -98,14 +105,6 @@ LBAgent::LBAgent()
 
     m_PowerDifferential = 0;
     m_MigrationStep = CGlobalConfiguration::Instance().GetMigrationStep();
-
-	/* ARMADILLO TEST */
-	using namespace arma;
-	mat A = randu<mat>(4,5);
-  	mat B = randu<mat>(4,5);
-  
-	std::cout << "ARMADILLO LINK CONFIRMATION" << std::endl;
-  	std::cout << A*B.t() << std::endl;
 }
 
 ////////////////////////////////////////////////////////////
@@ -307,10 +306,8 @@ void LBAgent::LoadManage(const boost::system::error_code & error)
         UpdateState();
         LoadTable();
 
-        std::set<device::CDevice::Pointer> logger, desd;
+        std::set<device::CDevice::Pointer> logger;
         logger = device::CDeviceManager::Instance().GetDevicesOfType("Logger");
-        desd = device::CDeviceManager::Instance().GetDevicesOfType("DESD");
-
         if(logger.empty() || (*logger.begin())->GetState("dgiEnable") == 1)
         {
             if(m_State == LBAgent::DEMAND)
@@ -330,11 +327,8 @@ void LBAgent::LoadManage(const boost::system::error_code & error)
         }
         else
         {
-
+            SetPStar(m_Gateway);
         }
-
-        SetPStar(m_Gateway);
-
     }
     else if(error == boost::asio::error::operation_aborted)
     {
@@ -383,22 +377,13 @@ void LBAgent::ReadDevices()
 {
     Logger.Trace << __PRETTY_FUNCTION__ << std::endl;
 
-    float generation = device::CDeviceManager::Instance().GetNetValue("DRER", "AOUT/Grid_Freq");//these are placeholders, it should be generation
-    float storage = device::CDeviceManager::Instance().GetNetValue("DESD", "AOUT/Grid_Freq");   //these are placeholders, it should be storage
+    float generation = device::CDeviceManager::Instance().GetNetValue("DRER", "generation");
+	//these were all commented out before, DESD cannot work as 'storage' when it is a command (adapter.xml)
+    float storage = 0; //device::CDeviceManager::Instance().GetNetValue("DESD", "storage");  
     float load = device::CDeviceManager::Instance().GetNetValue("Load", "drain");
 
-    m_Gateway = device::CDeviceManager::Instance().GetNetValue("SST", "AOUT/Reactive_Pwr");     //these are placeholders, it should be gateway
+    m_Gateway = device::CDeviceManager::Instance().GetNetValue("SST", "gateway");
     m_NetGeneration = generation + storage - load;
-
-   // Logger.Status << "NET dedsd VALUES: " << storage << " SST values" <<m_Gateway<< std::endl;
-
-    // Keeping the above changes in merge and disabling below
-    // float generation = device::CDeviceManager::Instance().GetNetValue("Drer", "generation");
-    // float storage = device::CDeviceManager::Instance().GetNetValue("Desd", "storage");
-    // float load = device::CDeviceManager::Instance().GetNetValue("Load", "drain");
-
-    // m_Gateway = device::CDeviceManager::Instance().GetNetValue("Sst", "gateway");
-    // m_NetGeneration = generation + storage - load;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -414,7 +399,7 @@ void LBAgent::UpdateState()
     Logger.Trace << __PRETTY_FUNCTION__ << std::endl;
 
     int sstCount = device::CDeviceManager::Instance().GetDevicesOfType("SST").size();
-    Logger.Status << "Recognize " << sstCount << " attached SST devices." << std::endl;
+    Logger.Debug << "Recognize " << sstCount << " attached SST devices." << std::endl;
 
     if(sstCount > 0 && m_NetGeneration >= m_Gateway + m_MigrationStep)
     {
@@ -458,28 +443,80 @@ void LBAgent::LoadTable()
     int drer_count = device::CDeviceManager::Instance().GetDevicesOfType("DRER").size();
     int desd_count = device::CDeviceManager::Instance().GetDevicesOfType("DESD").size();
     int load_count = device::CDeviceManager::Instance().GetDevicesOfType("Load").size();
-    float generation = device::CDeviceManager::Instance().GetNetValue("DRER", "AOUT/Grid_Freq");////these are placeholders, it should be generation
-    float storage = device::CDeviceManager::Instance().GetNetValue("DESD", "AOUT/Grid_Freq");////these are placeholders, it should be storage
+    float generation = device::CDeviceManager::Instance().GetNetValue("DRER", "generation");    
+    float storage = 0; //device::CDeviceManager::Instance().GetNetValue("DESD", "storage");     //Gives Error: bad state (desd is used as command)
+    float power = device::CDeviceManager::Instance().GetNetValue("SST", "gateway");             
+    float load = device::CDeviceManager::Instance().GetNetValue("Load", "drain");               
+    float time = device::CDeviceManager::Instance().GetNetValue("FID", "state");
 
-    // keeping the above 5 lines as part of resolving merge conflict
-    // int drer_count = device::CDeviceManager::Instance().GetDevicesOfType("Drer").size();
-    // int desd_count = device::CDeviceManager::Instance().GetDevicesOfType("Desd").size();
-    // int load_count = device::CDeviceManager::Instance().GetDevicesOfType("Load").size();
-    // float generation = device::CDeviceManager::Instance().GetNetValue("Drer", "generation");
-    // float storage = device::CDeviceManager::Instance().GetNetValue("Desd", "storage");
+    std::multimap<std::string, float> voltage = device::CDeviceManager::Instance().GetValuesOfPairs("DRER", "generation");
+    std::multimap<std::string, float> power_reading = device::CDeviceManager::Instance().GetValuesOfPairs("SST", "gateway");
+    std::multimap<std::string, float> current = device::CDeviceManager::Instance().GetValuesOfPairs("Load", "drain");
+    std::multimap<std::string, float> time_reading = device::CDeviceManager::Instance().GetValuesOfPairs("FID", "state");
+    std::multimap<std::string, float>::iterator itr;
 
-    float load = device::CDeviceManager::Instance().GetNetValue("Load", "drain");
-    if (desd_count > 0) { //pub
-        device::CDevice::Pointer dev1 = device::CDeviceManager::Instance().GetDevice("DESD");
-        dev1->SetCommand("AIN/Active_Pwr", 8888);
-        Logger.Status << "Set command on " << dev1->GetID() << std::endl;
+    std::cout << "====================================================\n";
+
+    std::string line = "";    
+
+    for(itr = time_reading.begin(); itr != time_reading.end(); ++itr)
+    {
+	std::cout << itr->first << ": " << itr->second << "\n";
+	line += boost::to_string(itr->second);
+	line += ",";
     }
+    for(itr = voltage.begin(); itr != voltage.end(); ++itr)
+    {
+	std::cout << itr->first << ": " << itr->second << "\n";
+	line += boost::to_string(itr->second);
+	line += ",";
+    }
+    for(itr = power_reading.begin(); itr != power_reading.end(); ++itr)
+    {
+	std::cout << itr->first << ": " << itr->second << "\n";
+	line += boost::to_string(itr->second);
+	line += ",";
+    }
+    for(itr = current.begin(); itr != current.end(); ++itr)
+    {
+	std::cout << itr->first << ": " << itr->second << "\n";
+	line += boost::to_string(itr->second);
+	line += ",";
+    }
+
+    line += boost::to_string(m_PredictedGateway);
+    line += "\n";
+    
+    std::cout << "=====================================================\n";
+ 
+    static int timer = 0;
+    static std::ofstream results_file;
+    if(!results_file.is_open())
+    {
+	results_file.open("results.csv"); 
+	results_file << "Time,VD,VQ,P1Stable,ID,IQ,PCommand\n";
+    }
+    std::cout << "\n" << line << "\n";
+    
+    if(line.length() > 5)
+    {
+    	results_file << line;   
+    }
+    
+    timer++;	
+    if(timer >= 200)
+    {
+        results_file.close();
+        exit(1);
+    }
+    
+
     std::stringstream loadtable;
     loadtable << std::setprecision(2) << std::fixed;
     loadtable << "------- LOAD TABLE (Power Management) -------" << std::endl;
     loadtable << "\tNet DRER (" << std::setfill('0') << std::setw(2) << drer_count
         << "):  " << generation << std::endl;
-    loadtable << "\tNet Desd (" << std::setfill('0') << std::setw(2) << desd_count
+    loadtable << "\tNet DESD (" << std::setfill('0') << std::setw(2) << desd_count
         << "):  " << storage << std::endl;
     loadtable << "\tNet Load (" << std::setfill('0') << std::setw(2) << load_count
         << "):  " << load << std::endl;
@@ -488,7 +525,6 @@ void LBAgent::LoadTable()
     loadtable << "\tNet Generation: " << m_NetGeneration << std::endl;
     loadtable << "\tPredicted K:    " << m_PowerDifferential << std::endl;
     loadtable << "\t---------------------------------------------" << std::endl;
-    Logger.Status << "NET dedsd VALUES: " << storage << " SST values" <<m_Gateway<< std::endl;
 
     if(m_State == LBAgent::DEMAND)
     {
@@ -524,6 +560,8 @@ void LBAgent::LoadTable()
 
     loadtable << "\t---------------------------------------------";
     Logger.Status << loadtable.str() << std::endl;
+
+    
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1001,79 +1039,23 @@ void LBAgent::SetPStar(float pstar)
 {
     Logger.Trace << __PRETTY_FUNCTION__ << std::endl;
 
-    //std::set<device::CDevice::Pointer> sstContainer;
-    //sstContainer = device::CDeviceManager::Instance().GetDevicesOfType("Sst");
+    std::set<device::CDevice::Pointer> sstContainer;
+    sstContainer = device::CDeviceManager::Instance().GetDevicesOfType("DESD");
 
-    float generation = device::CDeviceManager::Instance().GetNetValue("DRER", "generation");
-   // float storage = device::CDeviceManager::Instance().GetNetValue("DESD", "storage");
-    float load = device::CDeviceManager::Instance().GetNetValue("Load", "drain");
-
-    SetDESD(pstar - generation + load);
-
-    /*if(sstContainer.size() > 0)
+    if(sstContainer.size() > 0)
     {
         if(sstContainer.size() > 1)
         {
             Logger.Warn << "Multiple attached SST devices" << std::endl;
         }
 
-        (*sstContainer.begin())->SetCommand("gateway", pstar);
+        (*sstContainer.begin())->SetCommand("storage", pstar);
         m_PredictedGateway = pstar;
         Logger.Notice << "P* = " << pstar << std::endl;
     }
     else
     {
-        Logger.Warn << "Failed to set P*: no attached SST device" << std::endl;
-    }*/
-}
-
-////////////////////////////////////////////////////////////
-/// SetDesd
-/// @description Migrates power by adjusting the gateway settings of the
-///     attched Desds
-/// @pre: Current load state of this node is 'Supply' or 'Demand'
-/// @post: Set command(s) to Desd
-/// @param Desd the new desd setting to use.
-/////////////////////////////////////////////////////////
-void LBAgent::SetDESD(float desdv)
-{
-    Logger.Trace << __PRETTY_FUNCTION__ << std::endl;
-
-    std::set<device::CDevice::Pointer> desd;
-    desd = device::CDeviceManager::Instance().GetDevicesOfType("DESD");
-
-
-    if(!desd.empty())
-    {
-        device::CDevice::Pointer dev = *desd.begin();
-        std::string output, cmd;
-
-        output = "Detected MQTT Device " + dev->GetID() + "\n";
-        BOOST_FOREACH(std::string state, dev->GetStateSet())
-        {
-            output += "\t" + state + " = " + boost::lexical_cast<std::string>(dev->GetState(state)) + "\n";
-        }
-        BOOST_FOREACH(std::string command, dev->GetCommandSet())
-        {
-            if(cmd.empty() && command.find("_minimum") == command.find("_maximum"))
-            {
-                cmd = command;
-            }
-            output += "\t" + command + "\n";
-        }
-        Logger.Status << output << std::endl;
-
-        //HARD CODED BIT
-
-        if(!cmd.empty())
-        {
-            dev->SetCommand(cmd, desdv);
-            Logger.Notice << "Desd* = " << desdv << std::endl;
-        }
-    }
-    else
-    {
-        Logger.Warn << "Failed to set Desd: no attached Desd device" << std::endl;
+        Logger.Warn << "Failed to set P*: no attached DESD device" << std::endl;
     }
 }
 
@@ -1275,4 +1257,5 @@ bool LBAgent::InvariantCheck()
 } // namespace lb
 } // namespace broker
 } // namespace freedm
+
 

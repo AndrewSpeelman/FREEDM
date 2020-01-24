@@ -1,4 +1,3 @@
-
 .. _reference-logger:
 
 Using The DGI Logger

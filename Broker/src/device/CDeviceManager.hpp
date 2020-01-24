@@ -71,6 +71,9 @@ public:
     /// Retrieves a multiset of stored values for the given device signal.
     std::multiset<SignalValue> GetValues(std::string type,
             std::string signal);
+    // Andrew's function to return a multimap of DeviceID, signal value.
+    std::multimap<std::string, float> GetValuesOfPairs(std::string type,
+        std::string signal);
 
     /// Returns the result of a binary operation on a set of device signals.
     SignalValue GetNetValue(std::string type, std::string signal);
@@ -87,9 +90,6 @@ private:
 
     /// CAdapterFactory can add/remove devices.
     friend class CAdapterFactory;
-
-    /// CMqttAdapter can add/remove PnP devices.
-    friend class CMqttAdapter;
 
     /// IAdapter can reveal devices.
     friend class IAdapter;

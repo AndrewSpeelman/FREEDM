@@ -133,7 +133,7 @@ void CDeviceManager::RevealDevice(std::string devid)
     m_devices[devid] = m_hidden_devices[devid];
     m_hidden_devices.erase(devid);
 
-    Logger.Status<< "Revealed the hidden device " << devid << std::endl;
+    Logger.Info << "Revealed the hidden device " << devid << std::endl;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -277,6 +277,25 @@ std::multiset<SignalValue> CDeviceManager::GetValues(std::string type,
     BOOST_FOREACH (CDevice::Pointer device, devices)
     {
         result.insert(device->GetState(signal));
+    }
+
+    return result;
+}
+
+//Andrew's function to return pairs of (deviceID, signalValue) in hopes to verify the signal value to the correct device
+std::multimap<std::string, float> CDeviceManager::GetValuesOfPairs(std::string type,
+        std::string signal)
+{
+    Logger.Trace << __PRETTY_FUNCTION__ << std::endl;
+
+    std::multimap<std::string, SignalValue> result;
+
+    std::set<CDevice::Pointer> devices = GetDevicesOfType(type);
+
+    BOOST_FOREACH (CDevice::Pointer device, devices)
+    {
+	
+        result.insert(std::pair<std::string,SignalValue>(device->GetID() ,device->GetState(signal)));
     }
 
     return result;

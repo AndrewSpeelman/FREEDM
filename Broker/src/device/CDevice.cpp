@@ -34,6 +34,11 @@
 #include "CDevice.hpp"
 #include "CLogger.hpp"
 
+#include <ostream>
+#include <stdexcept>
+
+#include <boost/foreach.hpp>
+
 namespace freedm {
 namespace broker {
 namespace device {
@@ -94,7 +99,7 @@ CDevice::CDevice(std::string id, DeviceInfo info, IAdapter::Pointer adapter)
     , m_adapter(adapter)
 {
     Logger.Trace << __PRETTY_FUNCTION__ << std::endl;
-    Logger.Status << "CREATED NEW DEVICE:\n" << m_devid << "\n" << m_devinfo
+    Logger.Info << "CREATED NEW DEVICE:\n" << m_devid << "\n" << m_devinfo
             << std::endl;
 }
 
@@ -181,11 +186,9 @@ SignalValue CDevice::GetState(std::string signal) const
 
     if( !HasState(signal) )
     {
-        //error not warning ....should record error if state not right
-        Logger.Warn << "Bad Device State: " << signal << "\n" << m_devid
+        Logger.Error << "Bad Device State: " << signal << "\n" << m_devid
                 << "\n" << m_devinfo << std::endl;
-       // throw std::runtime_error("Bad Device State: " + signal);
-        return 0;
+        throw std::runtime_error("Bad Device State: " + signal);
     }
 
     return m_adapter->GetState(m_devid, signal);
@@ -247,7 +250,6 @@ void CDevice::SetCommand(std::string signal, SignalValue value)
     }
 
     m_adapter->SetCommand(m_devid, signal, value);
-    Logger.Status << "Fired" << std::endl;
 }
 
 } // namespace device
