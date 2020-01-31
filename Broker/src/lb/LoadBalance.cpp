@@ -379,7 +379,7 @@ void LBAgent::ReadDevices()
 
     float generation = device::CDeviceManager::Instance().GetNetValue("DRER", "generation");
 	//these were all commented out before, DESD cannot work as 'storage' when it is a command (adapter.xml)
-    float storage = 0; //device::CDeviceManager::Instance().GetNetValue("DESD", "storage");  
+    float storage = m_PredictedGateway; //device::CDeviceManager::Instance().GetNetValue("DESD", "storage");  
     float load = device::CDeviceManager::Instance().GetNetValue("Load", "drain");
 
     m_Gateway = device::CDeviceManager::Instance().GetNetValue("SST", "gateway");
@@ -447,7 +447,7 @@ void LBAgent::LoadTable()
     float storage = 0; //device::CDeviceManager::Instance().GetNetValue("DESD", "storage");     //Gives Error: bad state (desd is used as command)
     float power = device::CDeviceManager::Instance().GetNetValue("SST", "gateway");             
     float load = device::CDeviceManager::Instance().GetNetValue("Load", "drain");               
-    float time = device::CDeviceManager::Instance().GetNetValue("FID", "state");
+    float time = device::CDeviceManager::Instance().GetNetValue("FID", "state");  //Not valid, with our config
 
     std::multimap<std::string, float> voltage = device::CDeviceManager::Instance().GetValuesOfPairs("DRER", "generation");
     std::multimap<std::string, float> power_reading = device::CDeviceManager::Instance().GetValuesOfPairs("SST", "gateway");
@@ -458,12 +458,24 @@ void LBAgent::LoadTable()
     std::cout << "====================================================\n";
 
     std::string line = "";    
+    static int timer = 0; 
+    static int counter = 0; //counter for # of times 'time' has been reported the same
+    static int timer1 = 0;
+    static int last_timer = 0;
+
+    //last_timer = timer1;
 
     for(itr = time_reading.begin(); itr != time_reading.end(); ++itr)
     {
+	/*if(itr == time_reading.end())
+	{
+	   timer1 = itr->second;
+	   std::cout << "TIMER1: " << timer1 << "LAST TIMER: " << last_timer << "\n";
+	}	*/
 	std::cout << itr->first << ": " << itr->second << "\n";
 	line += boost::to_string(itr->second);
 	line += ",";
+	
     }
     for(itr = voltage.begin(); itr != voltage.end(); ++itr)
     {
@@ -484,17 +496,22 @@ void LBAgent::LoadTable()
 	line += ",";
     }
 
-    line += boost::to_string(m_PredictedGateway);
+    line += boost::to_string(m_PredictedGateway); //PCommand
+    line += ",";
+    line += boost::to_string(m_State);
+    std::cout << boost::to_string(m_State) << "\n";
+    
+
     line += "\n";
     
-    std::cout << "=====================================================\n";
+    std::cout << "\n=====================================================\n";
  
-    static int timer = 0;
+    
     static std::ofstream results_file;
     if(!results_file.is_open())
     {
 	results_file.open("results.csv"); 
-	results_file << "Time,VD,VQ,P1Stable,ID,IQ,PCommand\n";
+	results_file << "ID0,IQ0,PGEN,Time,VD0,VQ0,VD,VQ,P1Stable,ID,IQ,PCommand,State\n";
     }
     std::cout << "\n" << line << "\n";
     
@@ -503,10 +520,15 @@ void LBAgent::LoadTable()
     	results_file << line;   
     }
     
-    timer++;	
-    if(timer >= 200)
+    timer++;
+    /*	
+    if(last_timer == timer1 && timer > 30)
     {
-        results_file.close();
+        counter++;
+    }*/
+    if(timer >= 260)
+    {
+	results_file.close();
         exit(1);
     }
     
